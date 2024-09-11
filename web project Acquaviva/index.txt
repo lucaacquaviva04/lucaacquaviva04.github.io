@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="it">
+    	<head>
+    		<meta charset="utf-8"/>
+    		<title>LA</title>
+    	</head>
+        <body>
+		<h1>MOZILLA E' UNA COMUNITA' DI SVILUPPATORI</H1>
+        	<img src="images/firefox.png" alt="logo firefox"/>
+        </body>
+</html>
