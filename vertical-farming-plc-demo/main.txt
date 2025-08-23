@@ -1,0 +1,108 @@
+(* Integrazione delle logiche temperatura, ventilazione, pompa, dosing pH e macchina stati irrigazione. *)
+
+(* SCALING / COPIE REGISTRI *)
+temp_C := REAL(temp_raw) / 100.0;           (* es. 2200 -> 22.00 °C *)
+pH_measure := REAL(pH_measure_raw) / 100.0; (* es. 625 -> 6.25 *)
+
+reg_temp_raw := temp_raw;
+reg_pH_raw := pH_measure_raw;
+
+(* DEBOUNCE sensore livello *)
+debounceLevelTim(IN := level_low_raw, PT := debounce_time);
+IF debounceLevelTim.Q THEN
+  alarm_level_low := TRUE;
+ELSE
+  alarm_level_low := FALSE;
+END_IF;
+
+reg_alarm_level := alarm_level_low;
+
+(* CONTROLLO RISCALDAMENTO (ISTERESI) *)
+IF temp_C < (set_temp - hyst) THEN
+  heater_out := TRUE;
+ELSIF temp_C > (set_temp + hyst) THEN
+  heater_out := FALSE;
+END_IF;
+
+(* CONTROLLO VENTOLA (SOGLIA) *)
+IF temp_C > (set_temp + fan_offset) THEN
+  fan_out := TRUE;
+ELSE
+  fan_out := FALSE;
+END_IF;
+
+(* LOGICA POMPA (ANTI-SHORT-CYCLE, MIN OFF) *)
+(* pumpMinOffTim parte mentre la pompa è OFF; solo quando pumpMinOffTim.Q = TRUE è possibile riaccendere *)
+pumpMinOffTim(IN := NOT pump_out, PT := pump_min_off_time);
+
+(* INIBIZIONE DI SICUREZZA: livello basso blocca subito la pompa *)
+IF alarm_level_low THEN
+  pump_cmd_request := FALSE;  (* annulla la richiesta *)
+  pump_out := FALSE;          (* spegni uscita *)
+ELSE
+  (* Se la FSM richiede la pompa e il periodo minimo OFF è passato -> accendi *)
+  IF pump_cmd_request AND pumpMinOffTim.Q THEN
+    pump_out := TRUE;
+  END_IF;
+  (* Se la FSM non richiede la pompa -> spegni (nessun min ON richiesto) *)
+  IF NOT pump_cmd_request THEN
+    pump_out := FALSE;
+  END_IF;
+END_IF;
+
+reg_pump_state := pump_out;
+
+(* EDGE DETECTION: start_cycle_req *)
+start_cycle_edge := (NOT prev_start_cycle_req) AND start_cycle_req_raw;
+prev_start_cycle_req := start_cycle_req_raw;
+
+(* MACCHINA A STATI - IRRIGAZIONE + DOSING SEMPLICE *)
+CASE STATE OF
+0: (* IDLE *)
+  irrigation_cmd := FALSE;
+  pump_cmd_request := FALSE;
+
+  IF start_cycle_edge OR start_cycle_req_raw THEN
+    STATE := 1;                 (* entra in IRRIGATE *)
+    stateTimer(IN := FALSE);    (* reset timer per sicurezza; verrà attivato nello stato 1 *)
+  END_IF;
+
+1: (* IRRIGATE *)
+  irrigation_cmd := TRUE;
+  pump_cmd_request := TRUE;     (* la FSM richiede la pompa principale *)
+
+  (* avvia timer per durata irrigazione *)
+  stateTimer(IN := TRUE, PT := irrigate_duration);
+  IF stateTimer.Q THEN
+    stateTimer(IN := FALSE);
+    STATE := 2;
+  END_IF;
+
+2: (* DOSE - dosing pH semplice *)
+  irrigation_cmd := FALSE;
+  pump_cmd_request := FALSE;    (* pompa principale disabilitata in questa fase *)
+
+  (* Attiva pompa dosing per il tempo configurato *)
+  pump_dose_out := TRUE;
+  stateTimer(IN := TRUE, PT := dose_duration);
+  IF stateTimer.Q THEN
+    stateTimer(IN := FALSE);
+    pump_dose_out := FALSE;
+    STATE := 3;
+  END_IF;
+
+3: (* WAIT *)
+  irrigation_cmd := FALSE;
+  pump_cmd_request := FALSE;
+  pump_dose_out := FALSE;
+
+  stateTimer(IN := TRUE, PT := wait_duration);
+  IF stateTimer.Q THEN
+    stateTimer(IN := FALSE);
+    STATE := 0;
+  END_IF;
+
+ELSE
+  (* Safety fallback *)
+  STATE := 0;
+END_CASE;

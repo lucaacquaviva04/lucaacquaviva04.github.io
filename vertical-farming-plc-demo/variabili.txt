@@ -1,0 +1,57 @@
+VAR
+  (* INGRESSI HARDWARE (raw) *)
+  temp_raw            : INT := 2200;   (* es: centi°C -> 22.00°C *)
+  level_low_raw       : BOOL := FALSE; (* float switch grezzo: TRUE = livello basso *)
+  pH_measure_raw      : INT := 625;    (* pH * 100 -> 6.25 *)
+  start_cycle_req_raw : BOOL := FALSE; (* btn per forzare ciclo *)
+
+  (* PARAMETRI CONFIGURABILI *)
+  set_temp       : REAL := 22.0;           (* °C target *)
+  hyst           : REAL := 0.5;            (* +/- °C isteresi heater *)
+  fan_offset     : REAL := 2.0;            (* attiva fan se temp > set + offset *)
+
+  (* Durate macchina stati (configurabili) *)
+  irrigate_duration : TIME := T#3600s;        (* durata irrigazione principale *)
+  dose_duration     : TIME := T#600s;        (* durata dosing pH *)
+  wait_duration     : TIME := T#60s;       (* durata attesa tra cicli *)
+
+  (* Anti-short-cycle pump: tempo minimo OFF prima di riaccensione *)
+  pump_min_off_time : TIME := T#20s;
+
+  (* Debounce per sensore livello *)
+  debounce_time     : TIME := T#1s;
+
+  (* VARIABILI SCALATE / LOGICHE *)
+  temp_C         : REAL;                   (* temperatura in °C *)
+  pH_measure     : REAL;                   (* pH in unità reali *)
+
+  (* OUTPUTS LOGICHE (collegare alle uscite reali) *)
+  heater_out     : BOOL := FALSE;          (* riscaldatore ON/OFF *)
+  fan_out        : BOOL := FALSE;          (* ventilazione ON/OFF *)
+  pump_out       : BOOL := FALSE;          (* pompa principale irrigazione *)
+  pump_dose_out  : BOOL := FALSE;          (* pompa dosing pH (semplice ON/OFF) *)
+  irrigation_cmd : BOOL := FALSE;          (* flag: siamo in fase irrigazione *)
+
+  (* Flags / richieste *)
+  pump_cmd_request : BOOL := FALSE;        (* richiesta di accensione pompa (da FSM) *)
+  alarm_level_low  : BOOL := FALSE;        (* flag allarme livello basso filtrato *)
+
+  (* TIMER (TON) - istanze *)
+  debounceLevelTim : TON;   (* filtra level_low_raw *)
+  pumpMinOffTim    : TON;   (* minimo OFF per pompe *)
+  stateTimer       : TON;   (* timer generico per macchina a stati *)
+
+  (* MACCHINA STATI *)
+  STATE : INT := 0;         (* 0:IDLE,1:IRRIGATE,2:DOSE,3:WAIT *)
+
+  (* VARIABILI DI SUPPORTO (edge detection) *)
+  prev_start_cycle_req : BOOL := FALSE;
+  start_cycle_edge     : BOOL := FALSE;
+
+  (* (per SCADA) *)
+  reg_temp_raw       : INT := 0;     (* holding register *)
+  reg_pH_raw         : INT := 0;     (* holding register *)
+  reg_pump_state     : BOOL := FALSE;(* coil *)
+  reg_alarm_level    : BOOL := FALSE;(* coil *)
+
+END_VAR
